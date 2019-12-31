@@ -1,11 +1,11 @@
 Name:           gnome-remote-desktop
 Version:        0.1.6
-Release:        3
+Release:        4
 Summary:        Screen share service of GNOME Remote Desktop
 
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
-Source0:        gnome-remote-desktop-0.1.6.tar.xz
+Source0:        https://gitlab.gnome.org/jadahl/gnome-remote-desktop/uploads/c6862c12f0b741714d5a27e0693322fe/gnome-remote-desktop-0.1.6.tar.xz
 Patch00001:     0001-vnc-Add-anonymous-TLS-encryption-support.patch
 Patch00002:     0001-meson.build-Bump-pipewire-requirement-to-0.2.2.patch
 Patch00003:     0001-session-vnc-Don-t-requeue-close-session-idle.patch

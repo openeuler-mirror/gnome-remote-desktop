@@ -1,21 +1,18 @@
 Name:           gnome-remote-desktop
-Version:        0.1.6
-Release:        4
+Version:        0.1.9
+Release:        1
 Summary:        Screen share service of GNOME Remote Desktop
 
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
-Source0:        https://gitlab.gnome.org/jadahl/gnome-remote-desktop/uploads/c6862c12f0b741714d5a27e0693322fe/gnome-remote-desktop-0.1.6.tar.xz
+Source0:        https://download.gnome.org/sources/gnome-remote-desktop/0.1/%{name}-%{version}.tar.xz
 Patch00001:     0001-vnc-Add-anonymous-TLS-encryption-support.patch
-Patch00002:     0001-meson.build-Bump-pipewire-requirement-to-0.2.2.patch
-Patch00003:     0001-session-vnc-Don-t-requeue-close-session-idle.patch
-Patch00004:     0002-vnc-pipewire-stream-Close-session-when-disconnected.patch
 
-BuildRequires:  meson >= 0.36.0 pkgconfig pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
-BuildRequires:  pkgconfig(libpipewire-0.2) >= 0.2.2 pkgconfig(libvncserver) >= 0.9.11-7 pkgconfig(libsecret-1)
-BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) systemd
+BuildRequires:  meson >= 0.47.0 pkgconfig pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
+BuildRequires:  pkgconfig(libpipewire-0.3) >= 0.3.0 pkgconfig(libvncserver) >= 0.9.11-7 pkgconfig(libsecret-1)
+BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) systemd pkgconfig(freerdp2)
 
-Requires:       pipewire >= 0.2.2
+Requires:       pipewire >= 0.3.0
 
 %description
 GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
@@ -48,6 +45,11 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %{_userunitdir}/gnome-remote-desktop.service
 
 %changelog
+* Wed Jun 30 2021 weijin deng <weijin.deng@turbolinux.com.cn> - 0.1.9-1
+- Upgrade to 0.1.9
+- Delete patches whose content existed or target patch file not existed in this version 0.1.9
+- Modify 0001-vnc-Add-anonymous-TLS-encryption-support.patch
+
 * Wed Dec 11 2019 daiqianwen <daiqianwen@huawei.com> - 0.1.6-3
 - Package init
 

@@ -1,13 +1,14 @@
 Name:           gnome-remote-desktop
 Version:        0.1.9
-Release:        1
+Release:        2
 Summary:        Screen share service of GNOME Remote Desktop
 
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
 Source0:        https://download.gnome.org/sources/gnome-remote-desktop/0.1/%{name}-%{version}.tar.xz
-Patch00001:     0001-vnc-Add-anonymous-TLS-encryption-support.patch
-
+Patch00001:     0001-vnc-Drop-frames-if-client-is-gone.patch
+Patch00002:     0001-vnc-Add-anonymous-TLS-encryption-support.patch
+Patch00003:     0001-vnc-Copy-pixels-using-the-right-destination-stride.patch
 BuildRequires:  meson >= 0.47.0 pkgconfig pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
 BuildRequires:  pkgconfig(libpipewire-0.3) >= 0.3.0 pkgconfig(libvncserver) >= 0.9.11-7 pkgconfig(libsecret-1)
 BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) systemd pkgconfig(freerdp2)
@@ -45,6 +46,9 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %{_userunitdir}/gnome-remote-desktop.service
 
 %changelog
+* Mon Sep 27 2021 Wenlong Ding <wenlong.ding@turbolinux.com.cn> - 0.1.9-2
+- Add 2 patch to fix core-dump when start gnome-remote-desktop.service
+
 * Wed Jun 30 2021 weijin deng <weijin.deng@turbolinux.com.cn> - 0.1.9-1
 - Upgrade to 0.1.9
 - Delete patches whose content existed or target patch file not existed in this version 0.1.9

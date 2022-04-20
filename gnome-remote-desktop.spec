@@ -1,6 +1,6 @@
 Name:           gnome-remote-desktop
 Version:        0.1.9
-Release:        2
+Release:        3
 Summary:        Screen share service of GNOME Remote Desktop
 
 License:        GPLv2+
@@ -46,6 +46,9 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %{_userunitdir}/gnome-remote-desktop.service
 
 %changelog
+* Mon Apr 18 2022 lin zhang <lin.zhang@turbolinux.com.cn> - 0.1.9-3
+- Add gnome-remote-desktop.yaml
+
 * Mon Sep 27 2021 Wenlong Ding <wenlong.ding@turbolinux.com.cn> - 0.1.9-2
 - Add 2 patch to fix core-dump when start gnome-remote-desktop.service
 
@@ -56,4 +59,3 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 
 * Wed Dec 11 2019 daiqianwen <daiqianwen@huawei.com> - 0.1.6-3
 - Package init
-

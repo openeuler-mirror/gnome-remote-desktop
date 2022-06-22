@@ -1,19 +1,35 @@
-Name:           gnome-remote-desktop
-Version:        0.1.9
-Release:        3
-Summary:        Screen share service of GNOME Remote Desktop
+%global systemd_unit gnome-remote-desktop.service
 
+Name:           gnome-remote-desktop
+Version:        42.0
+Release:        1
+Summary:        Screen share service of GNOME Remote Desktop
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
-Source0:        https://download.gnome.org/sources/gnome-remote-desktop/0.1/%{name}-%{version}.tar.xz
-Patch00001:     0001-vnc-Drop-frames-if-client-is-gone.patch
-Patch00002:     0001-vnc-Add-anonymous-TLS-encryption-support.patch
-Patch00003:     0001-vnc-Copy-pixels-using-the-right-destination-stride.patch
-BuildRequires:  meson >= 0.47.0 pkgconfig pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
-BuildRequires:  pkgconfig(libpipewire-0.3) >= 0.3.0 pkgconfig(libvncserver) >= 0.9.11-7 pkgconfig(libsecret-1)
-BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) systemd pkgconfig(freerdp2)
+Source0:        https://download.gnome.org/sources/gnome-remote-desktop/40/%{name}-%{version}.tar.xz
+
+Patch0:         gnutls-anontls.patch
+Patch1:         0001-Add-man-page.patch
+
+BuildRequires:  meson pkgconfig gcc asciidoc systemd freerdp-devel
+BuildRequires:  pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
+BuildRequires:  pkgconfig(libpipewire-0.3) >= 0.3.0 pkgconfig(libvncserver) pkgconfig(libvncclient) pkgconfig(libsecret-1)
+BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) pkgconfig(gstreamer-1.0) pkgconfig(gstreamer-video-1.0)
+BuildRequires:  pkgconfig(cairo)
+BuildRequires:  pkgconfig(winpr2)
+BuildRequires:  pkgconfig(fuse3)
+BuildRequires:  pkgconfig(ffnvcodec)
+BuildRequires:  pkgconfig(xkbcommon)
+BuildRequires:  pkgconfig(libdrm)
+BuildRequires:  pkgconfig(epoxy)
+BuildRequires:  pkgconfig(gbm)
+BuildRequires:  pkgconfig(gudev-1.0)
 
 Requires:       pipewire >= 0.3.0
+Requires:       libdrm
+Requires:       libepoxy
+
+Obsoletes:      vino < 3.22.0-21
 
 %description
 GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
@@ -25,27 +41,35 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %meson
 %meson_build
 
-
 %install
 %meson_install
 
+%find_lang gnome-remote-desktop
 
 %post
-%systemd_user_post gnome-remote-desktop.service
+%systemd_user_post %{systemd_unit}
 
 %preun
-%systemd_user_preun gnome-remote-desktop.service
+%systemd_user_preun %{systemd_unit}
 
 %postun
-%systemd_user_postun_with_restart gnome-remote-desktop.service
+%systemd_user_postun_with_restart %{systemd_unit}
 
-%files
-%doc README COPYING
+%files -f gnome-remote-desktop.lang
+%license COPYING
+%doc README
+%{_bindir}/grdctl
 %{_libexecdir}/gnome-remote-desktop-daemon
-%{_datadir}/glib-2.0/schemas/org.gnome.desktop.remote-desktop.{gschema.xml,enums.xml}
 %{_userunitdir}/gnome-remote-desktop.service
+%{_datadir}/glib-2.0/schemas/org.gnome.desktop.remote-desktop.gschema.xml
+%{_datadir}/glib-2.0/schemas/org.gnome.desktop.remote-desktop.enums.xml
+%{_datadir}/gnome-remote-desktop/
+%{_mandir}/man1/grdctl.1*
 
 %changelog
+* Mon Mar 28 2022 lin zhang <lin.zhang@turbolinux.com.cn> - 42.0-1
+- Update to 42.0
+
 * Mon Apr 18 2022 lin zhang <lin.zhang@turbolinux.com.cn> - 0.1.9-3
 - Add gnome-remote-desktop.yaml
 

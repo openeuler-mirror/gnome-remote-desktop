@@ -1,7 +1,7 @@
-From 546151b4e15fd45901f38172435cd9aa63893727 Mon Sep 17 00:00:00 2001
+From 6ca82648e9b6791fbfbbbc9b05f15ec07a992e1a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Thu, 14 Jun 2018 12:21:37 +0200
-Subject: [PATCH 1/6] vnc: Add anonymous TLS encryption support
+Subject: [PATCH 1/7] vnc: Add anonymous TLS encryption support
 
 Add support for encrypting the VNC connection using anonymous TLS. In
 effect this means that the channel is encrypted using TLS but that no
@@ -11,36 +11,36 @@ VNC connection.
 ---
  meson.build                                   |   1 +
  src/grd-enums.h                               |   6 +
- src/grd-session-vnc.c                         |  98 +++-
- src/grd-session-vnc.h                         |  15 +
+ src/grd-session-vnc.c                         | 120 ++++-
+ src/grd-session-vnc.h                         |  17 +
  src/grd-settings.c                            |  28 ++
  src/grd-settings.h                            |   2 +
  src/grd-vnc-server.c                          |  45 ++
  src/grd-vnc-tls.c                             | 444 ++++++++++++++++++
  src/grd-vnc-tls.h                             |  28 ++
- src/meson.build                               |   5 +-
+ src/meson.build                               |   3 +
  ...nome.desktop.remote-desktop.gschema.xml.in |  10 +
- 11 files changed, 666 insertions(+), 16 deletions(-)
+ 11 files changed, 678 insertions(+), 26 deletions(-)
  create mode 100644 src/grd-vnc-tls.c
  create mode 100644 src/grd-vnc-tls.h
 
 diff --git a/meson.build b/meson.build
-index af423a4..813c97f 100644
+index 6bd2420..d6c5d9b 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -20,6 +20,7 @@ libvncclient_dep = dependency('libvncclient')
- libsecret_dep = dependency('libsecret-1')
- libnotify_dep = dependency('libnotify')
- winpr_dep = dependency('winpr2', version: freerdp_req)
-+gnutls_dep = dependency('gnutls')
+@@ -50,6 +50,7 @@ endif
+ if have_vnc
+   libvncserver_dep = dependency('libvncserver')
+   libvncclient_dep = dependency('libvncclient')
++  gnutls_dep = dependency('gnutls')
+ endif
  
- cdata = configuration_data()
- cdata.set_quoted('GETTEXT_PACKAGE', 'gnome-remote-desktop')
+ prefix = get_option('prefix')
 diff --git a/src/grd-enums.h b/src/grd-enums.h
-index ffab821..4333863 100644
+index e3ecc40..fa8dfb7 100644
 --- a/src/grd-enums.h
 +++ b/src/grd-enums.h
-@@ -27,4 +27,10 @@ typedef enum
+@@ -33,4 +33,10 @@ typedef enum
    GRD_VNC_AUTH_METHOD_PASSWORD
  } GrdVncAuthMethod;
  
@@ -52,10 +52,10 @@ index ffab821..4333863 100644
 +
  #endif /* GRD_ENUMS_H */
 diff --git a/src/grd-session-vnc.c b/src/grd-session-vnc.c
-index a06d34d..d014315 100644
+index a4cb958..c2e29b4 100644
 --- a/src/grd-session-vnc.c
 +++ b/src/grd-session-vnc.c
-@@ -44,7 +44,9 @@ struct _GrdSessionVnc
+@@ -45,7 +45,9 @@ struct _GrdSessionVnc
  {
    GrdSession parent;
  
@@ -65,7 +65,7 @@ index a06d34d..d014315 100644
    GSource *source;
    rfbScreenInfoPtr rfb_screen;
    rfbClientPtr rfb_client;
-@@ -518,12 +520,30 @@ check_rfb_password (rfbClientPtr  rfb_client,
+@@ -543,6 +545,12 @@ check_rfb_password (rfbClientPtr  rfb_client,
      }
  }
  
@@ -76,9 +76,10 @@ index a06d34d..d014315 100644
 +}
 +
  int
- grd_session_vnc_get_framebuffer_stride (GrdSessionVnc *session_vnc)
- {
-   return session_vnc->rfb_screen->paddedWidthInBytes;
+ grd_session_vnc_get_stride_for_width (GrdSessionVnc *session_vnc,
+                                       int            width)
+@@ -550,6 +558,18 @@ grd_session_vnc_get_stride_for_width (GrdSessionVnc *session_vnc,
+   return width * BGRX_BYTES_PER_PIXEL;
  }
  
 +rfbClientPtr
@@ -96,7 +97,7 @@ index a06d34d..d014315 100644
  static void
  init_vnc_session (GrdSessionVnc *session_vnc)
  {
-@@ -564,33 +584,74 @@ init_vnc_session (GrdSessionVnc *session_vnc)
+@@ -593,44 +613,85 @@ init_vnc_session (GrdSessionVnc *session_vnc)
    rfbProcessEvents (rfb_screen, 0);
  }
  
@@ -131,6 +132,17 @@ index a06d34d..d014315 100644
 +                                  session_vnc->pending_framebuffer_width,
 +                                  session_vnc->pending_framebuffer_height);
 +          session_vnc->pending_framebuffer_resize = FALSE;
++
++          /**
++           * This is a workaround. libvncserver is unable to handle clipboard
++           * changes early and either disconnects the client or crashes g-r-d
++           * if it receives rfbSendServerCutText too early altough the
++           * authentification process is already done.
++           * Doing this after resizing the framebuffer, seems to work fine,
++           * so enable the clipboard here and not when the remote desktop
++           * session proxy is acquired.
++           */
++          grd_clipboard_vnc_maybe_enable_clipboard (session_vnc->clipboard_vnc);
 +        }
 +    }
 +
@@ -172,6 +184,17 @@ index a06d34d..d014315 100644
 -                                      session_vnc->pending_framebuffer_width,
 -                                      session_vnc->pending_framebuffer_height);
 -              session_vnc->pending_framebuffer_resize = FALSE;
+-
+-              /**
+-               * This is a workaround. libvncserver is unable to handle clipboard
+-               * changes early and either disconnects the client or crashes g-r-d
+-               * if it receives rfbSendServerCutText too early altough the
+-               * authentification process is already done.
+-               * Doing this after resizing the framebuffer, seems to work fine,
+-               * so enable the clipboard here and not when the remote desktop
+-               * session proxy is acquired.
+-               */
+-              grd_clipboard_vnc_maybe_enable_clipboard (session_vnc->clipboard_vnc);
 -            }
 +          grd_session_stop (session);
          }
@@ -185,7 +208,7 @@ index a06d34d..d014315 100644
      }
  
    return G_SOURCE_CONTINUE;
-@@ -603,7 +664,10 @@ grd_session_vnc_attach_source (GrdSessionVnc *session_vnc)
+@@ -643,7 +704,10 @@ grd_session_vnc_attach_source (GrdSessionVnc *session_vnc)
  
    socket = g_socket_connection_get_socket (session_vnc->connection);
    session_vnc->source = g_socket_create_source (socket,
@@ -197,7 +220,7 @@ index a06d34d..d014315 100644
                                                  NULL);
    g_source_set_callback (session_vnc->source,
                           (GSourceFunc) handle_socket_data,
-@@ -629,8 +693,10 @@ grd_session_vnc_new (GrdVncServer      *vnc_server,
+@@ -669,8 +733,10 @@ grd_session_vnc_new (GrdVncServer      *vnc_server,
                                "context", context,
                                NULL);
  
@@ -208,7 +231,7 @@ index a06d34d..d014315 100644
    grd_session_vnc_attach_source (session_vnc);
  
    init_vnc_session (session_vnc);
-@@ -645,6 +711,8 @@ grd_session_vnc_dispose (GObject *object)
+@@ -685,6 +751,8 @@ grd_session_vnc_dispose (GObject *object)
  
    g_assert (!session_vnc->rfb_screen);
  
@@ -218,12 +241,12 @@ index a06d34d..d014315 100644
  
    G_OBJECT_CLASS (grd_session_vnc_parent_class)->dispose (object);
 diff --git a/src/grd-session-vnc.h b/src/grd-session-vnc.h
-index 07678c8..bba3d56 100644
+index fcc508d..092d9dc 100644
 --- a/src/grd-session-vnc.h
 +++ b/src/grd-session-vnc.h
 @@ -36,6 +36,9 @@ G_DECLARE_FINAL_TYPE (GrdSessionVnc,
                        GRD, SESSION_VNC,
-                       GrdSession);
+                       GrdSession)
  
 +typedef gboolean (* GrdVncSocketGrabFunc) (GrdSessionVnc  *session_vnc,
 +                                           GError        **error);
@@ -231,14 +254,14 @@ index 07678c8..bba3d56 100644
  GrdSessionVnc *grd_session_vnc_new (GrdVncServer      *vnc_server,
                                      GSocketConnection *connection);
  
-@@ -55,8 +58,20 @@ void grd_session_vnc_move_cursor (GrdSessionVnc *session_vnc,
-                                   int            x,
-                                   int            y);
+@@ -62,6 +65,20 @@ void grd_session_vnc_set_client_clipboard_text (GrdSessionVnc *session_vnc,
+ int grd_session_vnc_get_stride_for_width (GrdSessionVnc *session_vnc,
+                                           int            width);
  
 +int grd_session_vnc_get_fd (GrdSessionVnc *session_vnc);
 +
- int grd_session_vnc_get_framebuffer_stride (GrdSessionVnc *session_vnc);
- 
++int grd_session_vnc_get_framebuffer_stride (GrdSessionVnc *session_vnc);
++
  gboolean grd_session_vnc_is_client_gone (GrdSessionVnc *session_vnc);
  
 +rfbClientPtr grd_session_vnc_get_rfb_client (GrdSessionVnc *session_vnc);
@@ -253,10 +276,10 @@ index 07678c8..bba3d56 100644
 +
  #endif /* GRD_SESSION_VNC_H */
 diff --git a/src/grd-settings.c b/src/grd-settings.c
-index 3af87be..f37f2da 100644
+index c8f28fb..502d956 100644
 --- a/src/grd-settings.c
 +++ b/src/grd-settings.c
-@@ -60,6 +60,7 @@ struct _GrdSettings
+@@ -69,6 +69,7 @@ struct _GrdSettings
      gboolean view_only;
      GrdVncAuthMethod auth_method;
      int port;
@@ -264,7 +287,7 @@ index 3af87be..f37f2da 100644
    } vnc;
  };
  
-@@ -232,6 +233,12 @@ grd_settings_get_vnc_auth_method (GrdSettings *settings)
+@@ -245,6 +246,12 @@ grd_settings_get_vnc_auth_method (GrdSettings *settings)
      return settings->vnc.auth_method;
  }
  
@@ -275,9 +298,9 @@ index 3af87be..f37f2da 100644
 +}
 +
  static void
- update_rdp_tls_cert (GrdSettings *settings)
+ update_screen_share_mode (GrdSettings *settings)
  {
-@@ -267,6 +274,13 @@ update_vnc_auth_method (GrdSettings *settings)
+@@ -303,6 +310,13 @@ update_vnc_auth_method (GrdSettings *settings)
                                                     "auth-method");
  }
  
@@ -291,7 +314,7 @@ index 3af87be..f37f2da 100644
  static void
  on_rdp_settings_changed (GSettings   *rdp_settings,
                           const char  *key,
-@@ -304,6 +318,11 @@ on_vnc_settings_changed (GSettings   *vnc_settings,
+@@ -355,6 +369,11 @@ on_vnc_settings_changed (GSettings   *vnc_settings,
        update_vnc_auth_method (settings);
        g_signal_emit (settings, signals[VNC_AUTH_METHOD_CHANGED], 0);
      }
@@ -303,7 +326,7 @@ index 3af87be..f37f2da 100644
  }
  
  static void
-@@ -335,6 +354,8 @@ grd_settings_init (GrdSettings *settings)
+@@ -392,6 +411,8 @@ grd_settings_init (GrdSettings *settings)
  
    settings->rdp.port = GRD_RDP_SERVER_PORT;
    settings->vnc.port = GRD_VNC_SERVER_PORT;
@@ -312,7 +335,7 @@ index 3af87be..f37f2da 100644
  }
  
  static void
-@@ -379,4 +400,11 @@ grd_settings_class_init (GrdSettingsClass *klass)
+@@ -457,4 +478,11 @@ grd_settings_class_init (GrdSettingsClass *klass)
                    0,
                    NULL, NULL, NULL,
                    G_TYPE_NONE, 0);
@@ -325,10 +348,10 @@ index 3af87be..f37f2da 100644
 +                  G_TYPE_NONE, 0);
  }
 diff --git a/src/grd-settings.h b/src/grd-settings.h
-index e12e47e..b940fdb 100644
+index 449894a..900d81e 100644
 --- a/src/grd-settings.h
 +++ b/src/grd-settings.h
-@@ -64,4 +64,6 @@ gboolean grd_settings_get_vnc_view_only (GrdSettings *settings);
+@@ -65,4 +65,6 @@ gboolean grd_settings_get_vnc_view_only (GrdSettings *settings);
  
  GrdVncAuthMethod grd_settings_get_vnc_auth_method (GrdSettings *settings);
  
@@ -336,7 +359,7 @@ index e12e47e..b940fdb 100644
 +
  #endif /* GRD_SETTINGS_H */
 diff --git a/src/grd-vnc-server.c b/src/grd-vnc-server.c
-index a6d95cb..f9c68db 100644
+index 0b4322d..e8833f1 100644
 --- a/src/grd-vnc-server.c
 +++ b/src/grd-vnc-server.c
 @@ -24,11 +24,13 @@
@@ -353,7 +376,7 @@ index a6d95cb..f9c68db 100644
  
  
  enum
-@@ -130,6 +132,43 @@ on_incoming (GSocketService    *service,
+@@ -129,6 +131,43 @@ on_incoming (GSocketService    *service,
    return TRUE;
  }
  
@@ -397,7 +420,7 @@ index a6d95cb..f9c68db 100644
  gboolean
  grd_vnc_server_start (GrdVncServer  *vnc_server,
                        GError       **error)
-@@ -220,12 +259,18 @@ static void
+@@ -217,12 +256,18 @@ static void
  grd_vnc_server_constructed (GObject *object)
  {
    GrdVncServer *vnc_server = GRD_VNC_SERVER (object);
@@ -901,34 +924,29 @@ index 0000000..135ef8c
 +
 +#endif /* GRD_VNC_TLS_H */
 diff --git a/src/meson.build b/src/meson.build
-index 1b6425d..17579b1 100644
+index 1d671d7..ab675ff 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -33,6 +33,8 @@ daemon_sources = files([
-   'grd-vnc-pipewire-stream.h',
-   'grd-vnc-server.c',
-   'grd-vnc-server.h',
-+  'grd-vnc-tls.c',
-+  'grd-vnc-tls.h',
- ])
+@@ -115,10 +115,13 @@ if have_vnc
+     'grd-vnc-pipewire-stream.h',
+     'grd-vnc-server.c',
+     'grd-vnc-server.h',
++    'grd-vnc-tls.c',
++    'grd-vnc-tls.h',
+   ])
  
- gen_daemon_sources = []
-@@ -66,7 +68,8 @@ executable('gnome-remote-desktop-daemon',
-                           libvncserver_dep,
-                           libsecret_dep,
-                           libnotify_dep,
--                          winpr_dep],
-+                          winpr_dep,
-+                          gnutls_dep],
-            include_directories: [configinc],
-            install: true,
-            install_dir: libexecdir)
+   deps += [
+     libvncserver_dep,
++    gnutls_dep,
+   ]
+ endif
+ 
 diff --git a/src/org.gnome.desktop.remote-desktop.gschema.xml.in b/src/org.gnome.desktop.remote-desktop.gschema.xml.in
-index 4b6e593..0086d99 100644
+index 939b9a6..e57affb 100644
 --- a/src/org.gnome.desktop.remote-desktop.gschema.xml.in
 +++ b/src/org.gnome.desktop.remote-desktop.gschema.xml.in
-@@ -49,5 +49,15 @@
- 	 * password - by requiring the remote client to provide a known password
+@@ -90,5 +90,15 @@
+          * password - by requiring the remote client to provide a known password
        </description>
      </key>
 +    <key name='encryption' flags='org.gnome.desktop.remote-desktop.GrdVncEncryption'>
@@ -944,13 +962,13 @@ index 4b6e593..0086d99 100644
    </schema>
  </schemalist>
 -- 
-2.26.2
+2.34.1
 
 
-From 2e46518f421fd8704770bb6742accfacba3570aa Mon Sep 17 00:00:00 2001
+From 212fa98088cb4a754bac8cdb3a69d2a3e6b4dff9 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Wed, 27 Nov 2019 11:02:09 +0100
-Subject: [PATCH 2/6] session-vnc: Add paused/resumed signals
+Subject: [PATCH 2/7] session-vnc: Add paused/resumed signals
 
 Paused is when the socket sourec is detached, and resumed when attached.
 Meant to be used by the TLS channel security to a attach/detach
@@ -960,10 +978,10 @@ out-of-socket source.
  1 file changed, 65 insertions(+), 7 deletions(-)
 
 diff --git a/src/grd-session-vnc.c b/src/grd-session-vnc.c
-index d014315..7edd407 100644
+index c2e29b4..4be4c49 100644
 --- a/src/grd-session-vnc.c
 +++ b/src/grd-session-vnc.c
-@@ -40,14 +40,27 @@
+@@ -41,14 +41,27 @@
  #define BGRX_SAMPLES_PER_PIXEL 3
  #define BGRX_BYTES_PER_PIXEL 4
  
@@ -991,8 +1009,8 @@ index d014315..7edd407 100644
    rfbScreenInfoPtr rfb_screen;
    rfbClientPtr rfb_client;
  
-@@ -73,7 +86,7 @@ struct _GrdSessionVnc
- G_DEFINE_TYPE (GrdSessionVnc, grd_session_vnc, GRD_TYPE_SESSION);
+@@ -77,7 +90,7 @@ struct _GrdSessionVnc
+ G_DEFINE_TYPE (GrdSessionVnc, grd_session_vnc, GRD_TYPE_SESSION)
  
  static void
 -grd_session_vnc_detach_source (GrdSessionVnc *session_vnc);
@@ -1000,7 +1018,7 @@ index d014315..7edd407 100644
  
  static gboolean
  close_session_idle (gpointer user_data);
-@@ -224,7 +237,8 @@ handle_client_gone (rfbClientPtr rfb_client)
+@@ -236,7 +249,8 @@ handle_client_gone (rfbClientPtr rfb_client)
  
    g_debug ("VNC client gone");
  
@@ -1010,7 +1028,7 @@ index d014315..7edd407 100644
    maybe_queue_close_session_idle (session_vnc);
    session_vnc->rfb_client = NULL;
  }
-@@ -293,7 +307,7 @@ handle_new_client (rfbClientPtr rfb_client)
+@@ -305,7 +319,7 @@ handle_new_client (rfbClientPtr rfb_client)
                                session_vnc->prompt_cancellable,
                                prompt_response_callback,
                                session_vnc);
@@ -1019,7 +1037,7 @@ index d014315..7edd407 100644
        return RFB_CLIENT_ON_HOLD;
      case GRD_VNC_AUTH_METHOD_PASSWORD:
        session_vnc->rfb_screen->passwordCheck = check_rfb_password;
-@@ -511,7 +525,7 @@ check_rfb_password (rfbClientPtr  rfb_client,
+@@ -536,7 +550,7 @@ check_rfb_password (rfbClientPtr  rfb_client,
    if (memcmp (challenge_encrypted, response_encrypted, len) == 0)
      {
        grd_session_start (GRD_SESSION (session_vnc));
@@ -1028,7 +1046,7 @@ index d014315..7edd407 100644
        return TRUE;
      }
    else
-@@ -681,6 +695,36 @@ grd_session_vnc_detach_source (GrdSessionVnc *session_vnc)
+@@ -721,6 +735,36 @@ grd_session_vnc_detach_source (GrdSessionVnc *session_vnc)
    g_clear_pointer (&session_vnc->source, g_source_destroy);
  }
  
@@ -1065,7 +1083,7 @@ index d014315..7edd407 100644
  GrdSessionVnc *
  grd_session_vnc_new (GrdVncServer      *vnc_server,
                       GSocketConnection *connection)
-@@ -698,6 +742,7 @@ grd_session_vnc_new (GrdVncServer      *vnc_server,
+@@ -738,6 +782,7 @@ grd_session_vnc_new (GrdVncServer      *vnc_server,
  
    grd_session_vnc_grab_socket (session_vnc, vnc_socket_grab_func);
    grd_session_vnc_attach_source (session_vnc);
@@ -1073,7 +1091,7 @@ index d014315..7edd407 100644
  
    init_vnc_session (session_vnc);
  
-@@ -727,7 +772,7 @@ grd_session_vnc_stop (GrdSession *session)
+@@ -767,7 +812,7 @@ grd_session_vnc_stop (GrdSession *session)
  
    g_clear_object (&session_vnc->pipewire_stream);
  
@@ -1081,8 +1099,8 @@ index d014315..7edd407 100644
 +  grd_session_vnc_pause (session_vnc);
  
    g_clear_object (&session_vnc->connection);
-   g_clear_pointer (&session_vnc->rfb_screen->frameBuffer, g_free);
-@@ -783,8 +828,8 @@ grd_session_vnc_stream_ready (GrdSession *session,
+   g_clear_object (&session_vnc->clipboard_vnc);
+@@ -827,8 +872,8 @@ grd_session_vnc_stream_ready (GrdSession *session,
                      G_CALLBACK (on_pipewire_stream_closed),
                      session_vnc);
  
@@ -1093,9 +1111,9 @@ index d014315..7edd407 100644
  }
  
  static void
-@@ -803,4 +848,17 @@ grd_session_vnc_class_init (GrdSessionVncClass *klass)
- 
-   session_class->stop = grd_session_vnc_stop;
+@@ -849,4 +894,17 @@ grd_session_vnc_class_init (GrdSessionVncClass *klass)
+   session_class->remote_desktop_session_started =
+     grd_session_vnc_remote_desktop_session_started;
    session_class->stream_ready = grd_session_vnc_stream_ready;
 +
 +  signals[PAUSED] = g_signal_new ("paused",
@@ -1112,13 +1130,13 @@ index d014315..7edd407 100644
 +                                   G_TYPE_NONE, 0);
  }
 -- 
-2.26.2
+2.34.1
 
 
-From b59c36ccf73939d32ccf5ab4eb47460a9fe415f3 Mon Sep 17 00:00:00 2001
+From db1ce3962bbe49491b87cb0a4a90de41614e118b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Wed, 27 Nov 2019 11:03:46 +0100
-Subject: [PATCH 3/6] session-vnc: Add grd_session_vnc_dispatch() helper
+Subject: [PATCH 3/7] session-vnc: Add grd_session_vnc_dispatch() helper
 
 To be used by the TLS channel security to dispatch when there is data
 available that is not visible to the socket source.
@@ -1128,10 +1146,10 @@ available that is not visible to the socket source.
  2 files changed, 18 insertions(+), 10 deletions(-)
 
 diff --git a/src/grd-session-vnc.c b/src/grd-session-vnc.c
-index 7edd407..29c94a1 100644
+index 4be4c49..9708de0 100644
 --- a/src/grd-session-vnc.c
 +++ b/src/grd-session-vnc.c
-@@ -635,6 +635,21 @@ vnc_socket_grab_func (GrdSessionVnc  *session_vnc,
+@@ -675,6 +675,21 @@ vnc_socket_grab_func (GrdSessionVnc  *session_vnc,
    return TRUE;
  }
  
@@ -1153,7 +1171,7 @@ index 7edd407..29c94a1 100644
  static gboolean
  handle_socket_data (GSocket *socket,
                      GIOCondition condition,
-@@ -651,16 +666,7 @@ handle_socket_data (GSocket *socket,
+@@ -691,16 +706,7 @@ handle_socket_data (GSocket *socket,
      }
    else if (condition & G_IO_IN)
      {
@@ -1172,10 +1190,10 @@ index 7edd407..29c94a1 100644
    else
      {
 diff --git a/src/grd-session-vnc.h b/src/grd-session-vnc.h
-index bba3d56..58f635c 100644
+index 092d9dc..e9eced0 100644
 --- a/src/grd-session-vnc.h
 +++ b/src/grd-session-vnc.h
-@@ -72,6 +72,8 @@ void grd_session_vnc_grab_socket (GrdSessionVnc        *session_vnc,
+@@ -79,6 +79,8 @@ void grd_session_vnc_grab_socket (GrdSessionVnc        *session_vnc,
  void grd_session_vnc_ungrab_socket (GrdSessionVnc        *session_vnc,
                                      GrdVncSocketGrabFunc  grab_func);
  
@@ -1185,13 +1203,13 @@ index bba3d56..58f635c 100644
  
  #endif /* GRD_SESSION_VNC_H */
 -- 
-2.26.2
+2.34.1
 
 
-From 966b2ddbd1c03c9e20dc66e5ea9a2dfb39ba4bfa Mon Sep 17 00:00:00 2001
+From d6115fc524886ba716ba22464743c1a72472ff75 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Wed, 27 Nov 2019 11:05:13 +0100
-Subject: [PATCH 4/6] vnc/tls: Add some logging
+Subject: [PATCH 4/7] vnc/tls: Add some logging
 
 Uses the log utility from libvncserver as it is related to the RFB
 protocol rather than the session itself.
@@ -1262,13 +1280,13 @@ index ec4758e..ac6c35f 100644
      {
        g_warning ("TLS handshake failed: %s", error->message);
 -- 
-2.26.2
+2.34.1
 
 
-From e01d27dc9911f4d7ecfd232c7e389f4dabfd87de Mon Sep 17 00:00:00 2001
+From c71c9d295a2921014d55820042fc8bdad02df19c Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Wed, 27 Nov 2019 11:07:40 +0100
-Subject: [PATCH 5/6] vnc/tls: Dispatch also when data is pending outside of
+Subject: [PATCH 5/7] vnc/tls: Dispatch also when data is pending outside of
  the socket
 
 gnutls may have data available in its buffers, and we have our own peek
@@ -1282,10 +1300,10 @@ long as there is data to read in those buffers.
  2 files changed, 86 insertions(+), 6 deletions(-)
 
 diff --git a/src/grd-session-vnc.h b/src/grd-session-vnc.h
-index 58f635c..0d01ad3 100644
+index e9eced0..8a916b7 100644
 --- a/src/grd-session-vnc.h
 +++ b/src/grd-session-vnc.h
-@@ -72,6 +72,8 @@ void grd_session_vnc_grab_socket (GrdSessionVnc        *session_vnc,
+@@ -79,6 +79,8 @@ void grd_session_vnc_grab_socket (GrdSessionVnc        *session_vnc,
  void grd_session_vnc_ungrab_socket (GrdSessionVnc        *session_vnc,
                                      GrdVncSocketGrabFunc  grab_func);
  
@@ -1432,13 +1450,13 @@ index ac6c35f..312b6b9 100644
      }
  
 -- 
-2.26.2
+2.34.1
 
 
-From 682f3b4a8e985f00a00e761a086a15cb5e2b9b04 Mon Sep 17 00:00:00 2001
+From edc2380304d19e1bea58b079b943bad42cac5d69 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
 Date: Wed, 27 Nov 2019 16:48:00 +0100
-Subject: [PATCH 6/6] session-vnc: Set our own password handling function up
+Subject: [PATCH 6/7] session-vnc: Set our own password handling function up
  front
 
 libvncserver decides whether to register a auth security handler
@@ -1454,10 +1472,10 @@ password prompt.
  1 file changed, 2 insertions(+), 6 deletions(-)
 
 diff --git a/src/grd-session-vnc.c b/src/grd-session-vnc.c
-index 29c94a1..ebe1540 100644
+index 9708de0..bc60285 100644
 --- a/src/grd-session-vnc.c
 +++ b/src/grd-session-vnc.c
-@@ -91,11 +91,6 @@ grd_session_vnc_pause (GrdSessionVnc *session_vnc);
+@@ -95,11 +95,6 @@ grd_session_vnc_pause (GrdSessionVnc *session_vnc);
  static gboolean
  close_session_idle (gpointer user_data);
  
@@ -1469,7 +1487,7 @@ index 29c94a1..ebe1540 100644
  static void
  swap_uint8 (uint8_t *a,
              uint8_t *b)
-@@ -310,7 +305,6 @@ handle_new_client (rfbClientPtr rfb_client)
+@@ -322,7 +317,6 @@ handle_new_client (rfbClientPtr rfb_client)
        grd_session_vnc_pause (session_vnc);
        return RFB_CLIENT_ON_HOLD;
      case GRD_VNC_AUTH_METHOD_PASSWORD:
@@ -1477,7 +1495,7 @@ index 29c94a1..ebe1540 100644
        /*
         * authPasswdData needs to be non NULL in libvncserver to trigger
         * password authentication.
-@@ -594,6 +588,8 @@ init_vnc_session (GrdSessionVnc *session_vnc)
+@@ -623,6 +617,8 @@ init_vnc_session (GrdSessionVnc *session_vnc)
    rfb_screen->frameBuffer = g_malloc0 (screen_width * screen_height * 4);
    memset (rfb_screen->frameBuffer, 0x1f, screen_width * screen_height * 4);
  
@@ -1487,5 +1505,40 @@ index 29c94a1..ebe1540 100644
    rfbProcessEvents (rfb_screen, 0);
  }
 -- 
-2.26.2
+2.34.1
+
+
+From 539d2c562b8068f1f698468cb87b36b4968c1517 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20=C3=85dahl?= <jadahl@gmail.com>
+Date: Mon, 12 Oct 2020 17:34:30 +0200
+Subject: [PATCH 7/7] vnc: Copy pixels using the right destination stride
+
+We're copying the pixels in a separate thread managed by PipeWire, and
+in this thread, accessing the VNC framebuffer dimension and stride is
+racy. Instead of fetching the dimension directly, pass the expected
+width and get the stride it will eventually have.
+
+Already before this patch, when the copied pixel end up on the main
+thread and the dimension still doesn't match up, the frame will be
+dropped.
+---
+ src/grd-session-vnc.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/grd-session-vnc.h b/src/grd-session-vnc.h
+index 8a916b7..e85f31e 100644
+--- a/src/grd-session-vnc.h
++++ b/src/grd-session-vnc.h
+@@ -67,7 +67,8 @@ int grd_session_vnc_get_stride_for_width (GrdSessionVnc *session_vnc,
+ 
+ int grd_session_vnc_get_fd (GrdSessionVnc *session_vnc);
+ 
+-int grd_session_vnc_get_framebuffer_stride (GrdSessionVnc *session_vnc);
++int grd_session_vnc_get_stride_for_width (GrdSessionVnc *session_vnc,
++                                          int            width);
+ 
+ gboolean grd_session_vnc_is_client_gone (GrdSessionVnc *session_vnc);
+ 
+-- 
+2.34.1
 

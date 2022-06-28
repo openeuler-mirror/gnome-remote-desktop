@@ -1,7 +1,7 @@
 %global systemd_unit gnome-remote-desktop.service
 
 Name:           gnome-remote-desktop
-Version:        42.0
+Version:        42.2
 Release:        1
 Summary:        Screen share service of GNOME Remote Desktop
 License:        GPLv2+
@@ -67,6 +67,9 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %{_mandir}/man1/grdctl.1*
 
 %changelog
+* Fri Jun 24 2022 weijin deng <weijin.deng@turbolinux.com.cn> - 42.2-1
+- Update to 42.2
+
 * Mon Mar 28 2022 lin zhang <lin.zhang@turbolinux.com.cn> - 42.0-1
 - Update to 42.0
 

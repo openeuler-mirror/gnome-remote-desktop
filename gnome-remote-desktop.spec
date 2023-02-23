@@ -1,33 +1,44 @@
 %global systemd_unit gnome-remote-desktop.service
 
 Name:           gnome-remote-desktop
-Version:        42.2
+Version:        43.2
 Release:        1
 Summary:        Screen share service of GNOME Remote Desktop
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
-Source0:        https://download.gnome.org/sources/gnome-remote-desktop/40/%{name}-%{version}.tar.xz
+Source0:        https://download.gnome.org/sources/%{name}/43/%{name}-%{version}.tar.xz
 
 Patch0:         gnutls-anontls.patch
-Patch1:         0001-Add-man-page.patch
 
-BuildRequires:  meson pkgconfig gcc asciidoc systemd freerdp-devel
-BuildRequires:  pkgconfig(glib-2.0) >= 2.32 pkgconfig(gio-unix-2.0) >= 2.32
-BuildRequires:  pkgconfig(libpipewire-0.3) >= 0.3.0 pkgconfig(libvncserver) pkgconfig(libvncclient) pkgconfig(libsecret-1)
-BuildRequires:  pkgconfig(libnotify) pkgconfig(gnutls) pkgconfig(gstreamer-1.0) pkgconfig(gstreamer-video-1.0)
+BuildRequires:  asciidoc
+BuildRequires:  gcc
+BuildRequires:  meson >= 0.47.0
+BuildRequires:  systemd
 BuildRequires:  pkgconfig(cairo)
-BuildRequires:  pkgconfig(winpr2)
-BuildRequires:  pkgconfig(fuse3)
-BuildRequires:  pkgconfig(ffnvcodec)
-BuildRequires:  pkgconfig(xkbcommon)
-BuildRequires:  pkgconfig(libdrm)
 BuildRequires:  pkgconfig(epoxy)
+BuildRequires:  pkgconfig(ffnvcodec)
+#BuildRequires:  pkgconfig(fdk-aac)
+BuildRequires:  pkgconfig(freerdp2)
+BuildRequires:  pkgconfig(fuse3)
+BuildRequires:  pkgconfig(winpr2)
 BuildRequires:  pkgconfig(gbm)
+BuildRequires:  pkgconfig(glib-2.0) >= 2.68
+BuildRequires:  pkgconfig(gio-unix-2.0)
+BuildRequires:  pkgconfig(gnutls)
 BuildRequires:  pkgconfig(gudev-1.0)
+BuildRequires:  pkgconfig(libdrm)
+BuildRequires:  pkgconfig(libnotify)
+BuildRequires:  pkgconfig(libpipewire-0.3)
+BuildRequires:  pkgconfig(libsecret-1)
+BuildRequires:  pkgconfig(libvncserver) >= 0.9.11-7
+BuildRequires:  pkgconfig(systemd)
+BuildRequires:  pkgconfig(xkbcommon)
+BuildRequires:  pkgconfig(tss2-esys)
+BuildRequires:  pkgconfig(tss2-mu)
+BuildRequires:  pkgconfig(tss2-rc)
+BuildRequires:  pkgconfig(tss2-tctildr)
 
 Requires:       pipewire >= 0.3.0
-Requires:       libdrm
-Requires:       libepoxy
 
 Obsoletes:      vino < 3.22.0-21
 
@@ -38,13 +49,18 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %autosetup -n %{name}-%{version} -p1
 
 %build
-%meson
+%meson \
+    -Drdp=true \
+    -Dfdk_aac=false \
+    -Dsystemd=true \
+    -Dvnc=true
+
 %meson_build
 
 %install
 %meson_install
 
-%find_lang gnome-remote-desktop
+%find_lang %{name}
 
 %post
 %systemd_user_post %{systemd_unit}
@@ -55,18 +71,21 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %postun
 %systemd_user_postun_with_restart %{systemd_unit}
 
-%files -f gnome-remote-desktop.lang
+%files -f %{name}.lang
 %license COPYING
-%doc README
+#%%doc README
 %{_bindir}/grdctl
 %{_libexecdir}/gnome-remote-desktop-daemon
-%{_userunitdir}/gnome-remote-desktop.service
+%{_userunitdir}/%{systemd_unit}
 %{_datadir}/glib-2.0/schemas/org.gnome.desktop.remote-desktop.gschema.xml
 %{_datadir}/glib-2.0/schemas/org.gnome.desktop.remote-desktop.enums.xml
 %{_datadir}/gnome-remote-desktop/
 %{_mandir}/man1/grdctl.1*
 
 %changelog
+* Mon Jan 02 2023 lin zhang <lin.zhang@turbolinux.com.cn> - 43.2-1
+- Update to 43.2
+
 * Fri Jun 24 2022 weijin deng <weijin.deng@turbolinux.com.cn> - 42.2-1
 - Update to 42.2
 

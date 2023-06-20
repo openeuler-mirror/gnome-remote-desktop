@@ -1,0 +1,31 @@
+diff -u -r gnome-remote-desktop-43.2/src/grd-rdp-audio-playback.c gnome-remote-desktop-43.2/src/grd-rdp-audio-playback.c
+--- gnome-remote-desktop-43.2/src/grd-rdp-audio-playback.c	2022-12-04 01:28:18.000000000 +0800
++++ gnome-remote-desktop-43.2/src/grd-rdp-audio-playback.c	2023-06-19 12:05:42.000000000 +0800
+@@ -512,9 +512,25 @@
+ static AUDIO_FORMAT server_formats[] =
+ {
+ #ifdef HAVE_FDK_AAC
+-  audio_format_aac,
++	{
++		.wFormatTag = WAVE_FORMAT_AAC_MS,
++		.nChannels = N_CHANNELS,
++		.nSamplesPerSec = N_SAMPLES_PER_SEC,
++		.nAvgBytesPerSec = 12000,
++		.nBlockAlign = 4,
++		.wBitsPerSample = 16,
++		.cbSize = 0,
++	},
+ #endif /* HAVE_FDK_AAC */
+-  audio_format_pcm,
++	{
++		.wFormatTag = WAVE_FORMAT_PCM,
++		.nChannels = N_CHANNELS,
++		.nSamplesPerSec = N_SAMPLES_PER_SEC,
++		.nAvgBytesPerSec = N_SAMPLES_PER_SEC * N_BLOCK_ALIGN_PCM,
++		.nBlockAlign = N_BLOCK_ALIGN_PCM,
++		.wBitsPerSample = N_BYTES_PER_SAMPLE_PCM * 8,
++		.cbSize = 0,
++	},
+ };
+ 
+ static void

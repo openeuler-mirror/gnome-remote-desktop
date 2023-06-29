@@ -2,13 +2,14 @@
 
 Name:           gnome-remote-desktop
 Version:        43.2
-Release:        1
+Release:        2
 Summary:        Screen share service of GNOME Remote Desktop
 License:        GPLv2+
 URL:            https://gitlab.gnome.org/jadahl/gnome-remote-desktop
 Source0:        https://download.gnome.org/sources/%{name}/43/%{name}-%{version}.tar.xz
 
 Patch0:         gnutls-anontls.patch
+Patch1:         fix-clang.patch
 
 BuildRequires:  asciidoc
 BuildRequires:  gcc
@@ -83,6 +84,9 @@ GNOME Remote Desktop is a remote desktop daemon for GNOME using pipewire.
 %{_mandir}/man1/grdctl.1*
 
 %changelog
+* Tue Jun 20 2023 yoo <sunyuechi@iscas.ac.cn> - 43.2-2
+- fix clang build error
+
 * Mon Jan 02 2023 lin zhang <lin.zhang@turbolinux.com.cn> - 43.2-1
 - Update to 43.2
 
